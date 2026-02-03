@@ -9,7 +9,7 @@ import axios from 'axios';
 import config from '../config/config.js';
 
 const FLEET_AUTH_URL = config.tesla.fleetAuthUrl || 'https://fleet-auth.prd.vn.cloud.tesla.com';
-const FLEET_API_BASE = config.tesla.fleetApiBaseUrl || 'https://fleet-api.prd.na.vn.cloud.teslamotors.com';
+const FLEET_API_BASE = config.tesla.fleetApiBaseUrl || 'https://fleet-api.prd.na.vn.cloud.tesla.com';
 
 /**
  * Get a partner authentication token (client_credentials).

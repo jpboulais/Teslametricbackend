@@ -34,7 +34,8 @@ const config = {
       }
     })(),
     // Fleet API (for partner registration / virtual key only; vehicle data uses Owner API)
-    fleetApiBaseUrl: 'https://fleet-api.prd.na.vn.cloud.teslamotors.com',
+    // Must be tesla.com not teslamotors.com for audience to be valid
+    fleetApiBaseUrl: 'https://fleet-api.prd.na.vn.cloud.tesla.com',
     fleetAuthUrl: 'https://fleet-auth.prd.vn.cloud.tesla.com',
   },
 
