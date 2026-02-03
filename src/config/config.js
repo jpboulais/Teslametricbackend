@@ -21,8 +21,8 @@ const config = {
     authBaseUrl: process.env.TESLA_AUTH_BASE_URL || 'https://auth.tesla.com',
     // Owner API works with standard OAuth; Fleet API uses different auth and returns "invalid bearer token" for OAuth tokens
     apiBaseUrl: (process.env.TESLA_API_BASE_URL || 'https://owner-api.teslamotors.com').replace(/\/+$/, ''),
-    // Vehicle endpoints (get vehicles, vehicle_data, wake, etc.) must use Owner API when using OAuth tokens
-    vehicleApiBaseUrl: (process.env.TESLA_VEHICLE_API_BASE_URL || 'https://owner-api.teslamotors.com').replace(/\/+$/, ''),
+    // Vehicle endpoints: use Fleet API (tokens from fleet-auth are for this audience). Same paths: /api/1/vehicles, etc.
+    vehicleApiBaseUrl: (process.env.TESLA_VEHICLE_API_BASE_URL || process.env.TESLA_FLEET_API_BASE_URL || 'https://fleet-api.prd.na.vn.cloud.tesla.com').replace(/\/+$/, ''),
     scopes: ['openid', 'offline_access', 'vehicle_device_data', 'vehicle_cmds', 'vehicle_charging_cmds'],
     // Domain registered in Tesla Developer Portal (Allowed Origin). Used for virtual key link and partner_accounts register
     developerDomain: process.env.TESLA_DEVELOPER_DOMAIN || (() => {

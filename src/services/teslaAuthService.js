@@ -5,6 +5,9 @@ import config from '../config/config.js';
 class TeslaAuthService {
   constructor() {
     this.authBaseUrl = config.tesla.authBaseUrl;
+    // Token exchange/refresh must use fleet-auth and include audience for Fleet API (Tesla docs)
+    this.tokenBaseUrl = config.tesla.fleetAuthUrl || this.authBaseUrl;
+    this.fleetApiAudience = config.tesla.fleetApiBaseUrl || 'https://fleet-api.prd.na.vn.cloud.tesla.com';
     this.clientId = config.tesla.clientId;
     this.clientSecret = config.tesla.clientSecret;
     this.redirectUri = config.tesla.redirectUri;
@@ -53,19 +56,21 @@ class TeslaAuthService {
    */
   async exchangeCodeForToken(code, codeVerifier) {
     try {
+      const body = new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        code: code,
+        redirect_uri: this.redirectUri,
+        code_verifier: codeVerifier,
+        audience: this.fleetApiAudience,
+      });
       const response = await axios.post(
-        `${this.authBaseUrl}/oauth2/v3/token`,
-        {
-          grant_type: 'authorization_code',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
-          code: code,
-          redirect_uri: this.redirectUri,
-          code_verifier: codeVerifier,
-        },
+        `${this.tokenBaseUrl}/oauth2/v3/token`,
+        body.toString(),
         {
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
           },
         }
       );
@@ -82,17 +87,19 @@ class TeslaAuthService {
    */
   async refreshAccessToken(refreshToken) {
     try {
+      const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        refresh_token: refreshToken,
+        audience: this.fleetApiAudience,
+      });
       const response = await axios.post(
-        `${this.authBaseUrl}/oauth2/v3/token`,
-        {
-          grant_type: 'refresh_token',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
-          refresh_token: refreshToken,
-        },
+        `${this.tokenBaseUrl}/oauth2/v3/token`,
+        body.toString(),
         {
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
           },
         }
       );

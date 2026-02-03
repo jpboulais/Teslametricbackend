@@ -1,16 +1,16 @@
 import axios from 'axios';
 import config from '../config/config.js';
 
-// OAuth tokens from auth.tesla.com are for Owner API only. Fleet API returns "invalid bearer token".
-const OWNER_API_BASE = config.tesla.vehicleApiBaseUrl || 'https://owner-api.teslamotors.com';
+// Vehicle endpoints use Fleet API; tokens are obtained from fleet-auth with audience=fleet-api (same path layout: /api/1/vehicles, etc.)
+const FLEET_API_BASE = config.tesla.vehicleApiBaseUrl || 'https://fleet-api.prd.na.vn.cloud.tesla.com';
 
 class TeslaApiService {
   constructor() {
-    this.apiBaseUrl = OWNER_API_BASE;
+    this.apiBaseUrl = FLEET_API_BASE;
   }
 
   /**
-   * Create axios instance with auth token (always uses Owner API for vehicle endpoints)
+   * Create axios instance with auth token (Fleet API)
    */
   createClient(accessToken) {
     return axios.create({
