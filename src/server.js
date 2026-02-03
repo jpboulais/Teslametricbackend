@@ -10,12 +10,16 @@ import config from './config/config.js';
 import authRoutes from './routes/authRoutes.js';
 import vehicleRoutes from './routes/vehicleRoutes.js';
 import partnerRoutes from './routes/partnerRoutes.js';
+import telemetryRoutes from './routes/telemetryRoutes.js';
 import pool from './database/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Trust proxy (required behind Railway/nginx so X-Forwarded-For and rate limiting work)
+app.set('trust proxy', 1);
 
 // Security middleware
 app.use(helmet());
@@ -45,16 +49,21 @@ if (config.nodeEnv === 'development') {
   app.use(morgan('combined'));
 }
 
-// Tesla public key endpoint (required for Fleet API)
+// Tesla public key endpoint (required for Fleet API / virtual key)
 app.get('/.well-known/appspecific/com.tesla.3p.public-key.pem', (req, res) => {
   try {
     const publicKeyPath = path.join(__dirname, '../keys/public-key.pem');
+    let publicKey = null;
     if (fs.existsSync(publicKeyPath)) {
-      const publicKey = fs.readFileSync(publicKeyPath, 'utf8');
+      publicKey = fs.readFileSync(publicKeyPath, 'utf8');
+    } else if (process.env.TESLA_PUBLIC_KEY_PEM?.trim()) {
+      publicKey = process.env.TESLA_PUBLIC_KEY_PEM.trim();
+    }
+    if (publicKey) {
       res.type('text/plain').send(publicKey);
       console.log('✅ Served public key');
     } else {
-      res.status(404).send('Public key not found. Run: node src/utils/generateKeys.js');
+      res.status(404).send('Public key not found. Run: node src/utils/generateKeys.js and set TESLA_PUBLIC_KEY_PEM on Railway, or commit keys/public-key.pem.');
     }
   } catch (error) {
     res.status(500).send('Error reading public key');
@@ -87,6 +96,7 @@ const apiBasePath = config.apiBasePath;
 app.use(`${apiBasePath}/auth`, authRoutes);
 app.use(`${apiBasePath}/vehicles`, vehicleRoutes);
 app.use(`${apiBasePath}/partner`, partnerRoutes);
+app.use(`${apiBasePath}/telemetry`, telemetryRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -98,6 +108,7 @@ app.get('/', (req, res) => {
       health: '/health',
       auth: `${apiBasePath}/auth`,
       vehicles: `${apiBasePath}/vehicles`,
+      telemetry: `${apiBasePath}/telemetry`,
     },
   });
 });
@@ -123,7 +134,7 @@ app.use((err, req, res, next) => {
 
 // Start server
 const PORT = config.port;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log('\n🚀 Tesla Driving Metrics Backend Server');
   console.log('========================================');
   console.log(`Environment: ${config.nodeEnv}`);
@@ -133,6 +144,9 @@ app.listen(PORT, () => {
   console.log(`  - Health check: http://localhost:${PORT}/health`);
   console.log(`  - Auth: http://localhost:${PORT}${apiBasePath}/auth`);
   console.log(`  - Vehicles: http://localhost:${PORT}${apiBasePath}/vehicles`);
+  console.log(`  - Telemetry: http://localhost:${PORT}${apiBasePath}/telemetry (ingest, recent)`);
+  console.log(`\nTesla OAuth redirect_uri (add this in Tesla Developer Portal → App → Redirect URIs):`);
+  console.log(`  ${config.tesla.redirectUri}`);
   console.log('\n========================================\n');
 });
 

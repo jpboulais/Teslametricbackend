@@ -2,6 +2,26 @@ import axios from 'axios';
 import config from '../config/config.js';
 import TeslaToken from '../models/TeslaToken.js';
 
+/** Base URL for Tesla virtual key flow (user adds app as key on vehicle) */
+const VIRTUAL_KEY_BASE = 'https://www.tesla.com/_ak';
+
+/**
+ * Get the virtual key URL for this application.
+ * User opens this in the Tesla app to add the app as a virtual key on their vehicle (required for realtime data and commands).
+ * @see https://developer.tesla.com/docs/fleet-api/virtual-keys/overview
+ */
+export const getVirtualKeyUrl = (req, res) => {
+  const domain = config.tesla.developerDomain;
+  if (!domain) {
+    return res.status(503).json({
+      success: false,
+      error: 'Virtual key domain not configured (TESLA_DEVELOPER_DOMAIN or derive from TESLA_REDIRECT_URI)',
+    });
+  }
+  const url = `${VIRTUAL_KEY_BASE}/${domain}`;
+  res.json({ success: true, url });
+};
+
 /**
  * Register application with Tesla Fleet API for a region
  * This is required before accessing Fleet API endpoints

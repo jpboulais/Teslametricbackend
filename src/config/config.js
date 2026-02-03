@@ -21,6 +21,15 @@ const config = {
     authBaseUrl: process.env.TESLA_AUTH_BASE_URL || 'https://auth.tesla.com',
     apiBaseUrl: process.env.TESLA_API_BASE_URL || 'https://fleet-api.prd.na.vn.cloud.teslamotors.com',
     scopes: ['openid', 'offline_access', 'vehicle_device_data', 'vehicle_cmds', 'vehicle_charging_cmds'],
+    // Domain registered in Tesla Developer Portal (Allowed Origin). Used for virtual key link: https://www.tesla.com/_ak/<domain>
+    developerDomain: process.env.TESLA_DEVELOPER_DOMAIN || (() => {
+      try {
+        const u = new URL(process.env.TESLA_REDIRECT_URI || '');
+        return u.hostname || '';
+      } catch {
+        return '';
+      }
+    })(),
   },
 
   // Database Configuration

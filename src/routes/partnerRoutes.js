@@ -5,6 +5,13 @@ import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
 /**
+ * @route   GET /partner/virtual-key-url
+ * @desc    Get URL for user to add this app as a virtual key on their vehicle (realtime data + commands)
+ * @access  Public
+ */
+router.get('/virtual-key-url', partnerController.getVirtualKeyUrl);
+
+/**
  * @route   POST /partner/register
  * @desc    Register with Tesla Fleet API
  * @access  Private

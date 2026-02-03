@@ -276,6 +276,89 @@ Authorization: Bearer <jwt_token>
 
 Wakes up a sleeping vehicle.
 
+#### Telemetry (recent / ingest)
+
+```http
+GET /api/v1/telemetry/recent?limit=50
+Authorization: Bearer <jwt_token>
+```
+
+Returns recent telemetry for the authenticated user (from polling + ingest).
+
+```http
+POST /api/v1/telemetry/ingest
+Content-Type: application/json
+# Optional: X-Telemetry-Secret: <TELEMETRY_INGEST_SECRET>
+
+{"vin": "5YJ3...", "speed_kmh": 60, "battery_level": 80, ...}
+```
+
+Accepts telemetry payloads (for testing or relay). If `TELEMETRY_INGEST_SECRET` is set, the request must include the same value in `X-Telemetry-Secret`.
+
+---
+
+## Telemetry Setup
+
+### Current architecture (audit)
+
+| Question | Answer |
+|----------|--------|
+| **Do we have telemetry endpoints?** | Yes: `GET /api/v1/telemetry/recent` (auth) and `POST /api/v1/telemetry/ingest` (public or secret). |
+| **Poll vs push?** | **Poll only today.** The app (and dashboard refresh) calls `GET /api/v1/vehicles/:id/metrics`; the backend then calls Tesla’s `vehicle_data` endpoint and returns processed metrics. Each successful metrics response is also stored in `telemetry_data`. We do **not** receive Tesla Fleet Telemetry push (WebSocket) unless you run Tesla’s fleet-telemetry server and optionally relay to our ingest. |
+| **Where are tokens / vehicle IDs / VINs stored?** | Postgres: `tesla_tokens` (per user), `vehicles` (id, user_id, tesla_vehicle_id, vin, display_name, …). |
+| **What does the iOS app call for “telemetry”?** | It does **not** call a dedicated telemetry API. It calls `GET /vehicles` and `GET /vehicles/:id/metrics`; the backend fetches Tesla `vehicle_data` and now also writes a row into `telemetry_data` per request. Use `GET /telemetry/recent` (with JWT) to confirm stored data. |
+
+### Tesla Fleet Telemetry (plain English)
+
+- **Does telemetry require a Telemetry Config?** Yes. You send a **Fleet Telemetry config** to each vehicle (signed with your **private key**) so the vehicle knows **where** to stream (host + TLS) and **what** to send (fields + intervals). Config is sent via Tesla’s **fleet_telemetry_config** endpoint (through the [vehicle-command](https://github.com/teslamotors/vehicle-command) HTTP proxy).
+- **Does it require a public HTTPS ingestion endpoint?** Tesla does **not** POST to a REST URL. Vehicles open a **WebSocket** to a **Fleet Telemetry server** (TLS). You must run Tesla’s [fleet-telemetry](https://github.com/teslamotors/fleet-telemetry) server (Go) or a compatible one. That server can then dispatch to Kafka/Kinesis/Logger or a custom relay that POSTs to our `/telemetry/ingest` if you want.
+- **Partner registration / public key / signing?** Yes. You must: (1) Register with the Fleet API [register](https://developer.tesla.com/docs/fleet-api/endpoints/partner-endpoints#register) endpoint; (2) Host your **public key** at `https://<your-domain>/.well-known/appspecific/com.tesla.3p.public-key.pem`; (3) Use the **vehicle-command** proxy with your **private key** to sign the fleet_telemetry_config sent to vehicles.
+- **Does the user need to enable something?** Yes. The user must add your app as a **virtual key** on the vehicle (link: `https://www.tesla.com/_ak/<developer-domain>`). On some older S/X, a “Allow Third-Party App Data Streaming” toggle must be on. Vehicle firmware must be 2024.26+ (or 2023.20.6+ for legacy cert flow).
+- **Prerequisites (scopes/permissions):** Same OAuth scopes you use for vehicle data; partner registration and public key are required for Fleet Telemetry config. Verify: call Fleet API `fleet_status` and check that the app’s key is on the vehicle.
+
+### What this backend implements
+
+1. **Poll-based telemetry:** Every successful `GET /vehicles/:id/metrics` inserts a row into `telemetry_data`. The iOS app gets data by calling that endpoint (and refresh); no separate “telemetry” call.
+2. **GET /api/v1/telemetry/recent:** Returns recent rows from `telemetry_data` (for the authenticated user) and from `telemetry_events` (ingest). Use this to confirm data is being stored.
+3. **POST /api/v1/telemetry/ingest:** Public HTTPS endpoint that accepts JSON and stores it in `telemetry_events`. Use for: (a) curl/testing, (b) a future relay from a Fleet Telemetry dispatcher. Optional: set `TELEMETRY_INGEST_SECRET` and send `X-Telemetry-Secret` to protect the endpoint.
+
+### Tesla Developer Portal checklist
+
+- [ ] **Redirect URI:** Exactly one of your app’s Redirect URIs (e.g. `https://<your-app>.up.railway.app/api/v1/auth/tesla/callback`).
+- [ ] **Allowed Origin(s):** Your backend domain, e.g. `https://tesla-backend-production.up.railway.app` (same host as redirect, no path).
+- [ ] **Virtual key domain:** Users add the key via `https://www.tesla.com/_ak/<developer-domain>`. `<developer-domain>` must match the host you use for Fleet API registration (same as Allowed Origin host).
+- [ ] **Telemetry “destination” URL:** Tesla does **not** ask for a “telemetry URL” in the portal. The destination is set in the **Fleet Telemetry config** you send to the vehicle (host + port + TLS). That host must be where your **Fleet Telemetry server** (Tesla’s Go server) is running, not necessarily this Node app. If you only use polling, you don’t configure a telemetry destination.
+
+### Railway URLs (example)
+
+- Base: `https://tesla-backend-production.up.railway.app`
+- Telemetry ingest: `https://tesla-backend-production.up.railway.app/api/v1/telemetry/ingest`
+- Telemetry recent (auth): `https://tesla-backend-production.up.railway.app/api/v1/telemetry/recent`
+
+### How to verify end-to-end
+
+**A) Prove polling stores telemetry**
+
+1. Log in with the iOS app and open the dashboard (so the app calls `/vehicles` and `/vehicles/:id/metrics`).
+2. Call `GET /api/v1/telemetry/recent` with your JWT. You should see `from_polling` entries with your vehicle and recent timestamps.
+3. If `from_polling` is empty: ensure you’re not in mock mode (or that mock returns data), and that `/vehicles/:id/metrics` returns 200; check server logs for “Failed to store telemetry_data snapshot”.
+
+**B) Prove ingest works**
+
+```bash
+curl -X POST https://<your-backend>.up.railway.app/api/v1/telemetry/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"vin":"5YJ3TEST1234567890","speed_kmh":50,"battery_level":85}'
+```
+
+Then call `GET /api/v1/telemetry/recent` (with JWT); you should see the payload under `from_ingest`. Check server logs for a structured log line like `"message":"Telemetry ingest accepted"`.
+
+**C) Fleet Telemetry push (optional)**
+
+To receive **push** telemetry from vehicles you must run Tesla’s [fleet-telemetry](https://github.com/teslamotors/fleet-telemetry) server (Go), configure TLS and dispatchers, register with Fleet API, host the public key, add the virtual key to the vehicle, and send a signed fleet_telemetry_config to each vehicle. Then you can optionally add a dispatcher that POSTs to this backend’s `/telemetry/ingest`.
+
+---
+
 ## 🗄️ Database Schema
 
 ### Tables
@@ -296,8 +379,10 @@ backend/
 │   ├── config/
 │   │   └── config.js           # Configuration management
 │   ├── controllers/
-│   │   ├── authController.js   # Authentication logic
-│   │   └── vehicleController.js # Vehicle data logic
+│   │   ├── authController.js    # Authentication logic
+│   │   ├── vehicleController.js # Vehicle data logic
+│   │   ├── partnerController.js # Partner / virtual key
+│   │   └── telemetryController.js # Telemetry ingest & recent
 │   ├── database/
 │   │   ├── db.js               # Database connection
 │   │   ├── schema.sql          # Database schema
@@ -310,7 +395,9 @@ backend/
 │   │   └── Vehicle.js          # Vehicle model
 │   ├── routes/
 │   │   ├── authRoutes.js       # Auth endpoints
-│   │   └── vehicleRoutes.js    # Vehicle endpoints
+│   │   ├── vehicleRoutes.js    # Vehicle endpoints
+│   │   ├── partnerRoutes.js    # Partner / virtual key URL
+│   │   └── telemetryRoutes.js  # Telemetry ingest & recent
 │   ├── services/
 │   │   ├── teslaAuthService.js # Tesla OAuth service
 │   │   └── teslaApiService.js  # Tesla API client

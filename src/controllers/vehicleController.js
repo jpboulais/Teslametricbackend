@@ -3,7 +3,7 @@ import mockTeslaService from '../services/mockTeslaService.js';
 import teslaAuthService from '../services/teslaAuthService.js';
 import Vehicle from '../models/Vehicle.js';
 import TeslaToken from '../models/TeslaToken.js';
-import { query } from '../database/db.js';
+import pool, { query } from '../database/db.js';
 import config from '../config/config.js';
 
 // Use mock service in development until Tesla registration is complete
@@ -195,6 +195,43 @@ export const getVehicleMetrics = async (req, res) => {
         rawChargeEnergy: currentMetrics.chargeEnergyAdded,
       }
     };
+
+    // Store telemetry snapshot so we have history and /telemetry/recent returns data
+    try {
+      const ts = currentMetrics.timestamp ? new Date(currentMetrics.timestamp) : new Date();
+      const odometerKm = (currentMetrics.odometer || 0) * 1.60934;
+      const batteryRangeKm = (currentMetrics.batteryRange || 0) * 1.60934;
+      const estRangeKm = (currentMetrics.estBatteryRange || 0) * 1.60934;
+      const idealRangeKm = (currentMetrics.idealBatteryRange || 0) * 1.60934;
+      await pool.query(
+        `INSERT INTO telemetry_data (
+          vehicle_id, trip_id, timestamp, speed_kmh, odometer_km, battery_level,
+          battery_range_km, est_battery_range_km, ideal_battery_range_km, charge_energy_added_kwh,
+          shift_state, heading, latitude, longitude, inside_temp_c, outside_temp_c, is_climate_on, raw_data
+        ) VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+        [
+          vehicle.id,
+          ts,
+          Math.round(speedKmh),
+          odometerKm,
+          batteryLevel,
+          batteryRangeKm,
+          estRangeKm,
+          idealRangeKm,
+          currentMetrics.chargeEnergyAdded || 0,
+          currentMetrics.shiftState || 'P',
+          currentMetrics.heading ?? null,
+          currentMetrics.latitude ?? null,
+          currentMetrics.longitude ?? null,
+          currentMetrics.insideTemp ?? null,
+          currentMetrics.outsideTemp ?? null,
+          currentMetrics.isClimateOn ?? false,
+          JSON.stringify({ period, source: 'vehicle_data_poll' }),
+        ]
+      );
+    } catch (telemErr) {
+      console.warn('Failed to store telemetry_data snapshot:', telemErr.message);
+    }
 
     res.json({
       success: true,

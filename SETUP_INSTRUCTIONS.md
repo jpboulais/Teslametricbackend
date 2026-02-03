@@ -84,6 +84,14 @@ nano .env
 # Update DB_USER, DB_PASSWORD if needed
 ```
 
+**Important: Tesla OAuth redirect_uri**
+
+Tesla does **not** allow localhost redirect URIs. The value of `TESLA_REDIRECT_URI` in `.env` must be **exactly** one of the Redirect URIs registered in the Tesla Developer Portal—use your **production** callback URL (e.g. `https://your-app.up.railway.app/api/v1/auth/tesla/callback`).
+
+1. Open [Tesla Developer Portal](https://developer.tesla.com/) → your app.
+2. Under **Redirect URIs**, add your production callback URL (same as `TESLA_REDIRECT_URI`).
+3. Save. If you see "We don't recognize this redirect_uri", the URL in the portal must match `TESLA_REDIRECT_URI` character-for-character.
+
 ### Step 6: Run Database Migrations
 
 ```bash

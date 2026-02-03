@@ -1,6 +1,7 @@
 -- Tesla Driving Metrics Database Schema
 
 -- Drop existing tables (for development)
+DROP TABLE IF EXISTS telemetry_events CASCADE;
 DROP TABLE IF EXISTS telemetry_data CASCADE;
 DROP TABLE IF EXISTS trips CASCADE;
 DROP TABLE IF EXISTS vehicles CASCADE;
@@ -115,6 +116,15 @@ CREATE TABLE telemetry_data (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Raw telemetry ingest events (from POST /telemetry/ingest or Fleet Telemetry relay)
+CREATE TABLE telemetry_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  vin VARCHAR(17),
+  received_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  source VARCHAR(64) DEFAULT 'ingest',
+  payload JSONB NOT NULL
+);
+
 -- Create indexes for performance
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_tesla_user_id ON users(tesla_user_id);
@@ -135,6 +145,9 @@ CREATE INDEX idx_telemetry_vehicle_id ON telemetry_data(vehicle_id);
 CREATE INDEX idx_telemetry_trip_id ON telemetry_data(trip_id);
 CREATE INDEX idx_telemetry_timestamp ON telemetry_data(timestamp);
 CREATE INDEX idx_telemetry_vehicle_timestamp ON telemetry_data(vehicle_id, timestamp);
+
+CREATE INDEX idx_telemetry_events_vin ON telemetry_events(vin);
+CREATE INDEX idx_telemetry_events_received_at ON telemetry_events(received_at DESC);
 
 -- Create functions for automatic timestamp updates
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -164,3 +177,4 @@ COMMENT ON TABLE tesla_tokens IS 'OAuth tokens for Tesla API access';
 COMMENT ON TABLE vehicles IS 'Tesla vehicles associated with user accounts';
 COMMENT ON TABLE trips IS 'Driving trips with aggregated metrics';
 COMMENT ON TABLE telemetry_data IS 'Time-series telemetry data from vehicles';
+COMMENT ON TABLE telemetry_events IS 'Raw telemetry payloads from POST /telemetry/ingest';
