@@ -70,25 +70,22 @@ app.get('/.well-known/appspecific/com.tesla.3p.public-key.pem', (req, res) => {
   }
 });
 
-// Health check endpoint
+// Health check endpoint (always 200 so Railway doesn't restart container; DB status in body)
 app.get('/health', async (req, res) => {
+  let dbOk = false;
   try {
-    // Check database connection
-    await pool.query('SELECT 1');
-    
-    res.json({
-      success: true,
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      environment: config.nodeEnv,
-    });
-  } catch (error) {
-    res.status(503).json({
-      success: false,
-      status: 'unhealthy',
-      error: 'Database connection failed',
-    });
+    await Promise.race([pool.query('SELECT 1'), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))]);
+    dbOk = true;
+  } catch (err) {
+    console.warn('Health check DB ping failed:', err.message);
   }
+  res.status(200).json({
+    success: dbOk,
+    status: dbOk ? 'healthy' : 'degraded',
+    timestamp: new Date().toISOString(),
+    environment: config.nodeEnv,
+    database: dbOk ? 'connected' : 'unavailable',
+  });
 });
 
 // API routes
@@ -145,9 +142,36 @@ const server = app.listen(PORT, () => {
   console.log(`  - Auth: http://localhost:${PORT}${apiBasePath}/auth`);
   console.log(`  - Vehicles: http://localhost:${PORT}${apiBasePath}/vehicles`);
   console.log(`  - Telemetry: http://localhost:${PORT}${apiBasePath}/telemetry (ingest, recent)`);
-  console.log(`\nTesla OAuth redirect_uri (add this in Tesla Developer Portal → App → Redirect URIs):`);
+  const useMockTesla = process.env.USE_MOCK_TESLA === 'true' || config.nodeEnv === 'development';
+  console.log(`\nTesla vehicle API (OAuth): ${config.tesla.vehicleApiBaseUrl || config.tesla.apiBaseUrl}`);
+  console.log(useMockTesla ? '🎭 Tesla data: MOCK (set USE_MOCK_TESLA=false and NODE_ENV=production for real vehicle data)' : '✅ Tesla data: REAL API (Owner API)');
+  console.log(`Tesla OAuth redirect_uri (add this in Tesla Developer Portal → App → Redirect URIs):`);
   console.log(`  ${config.tesla.redirectUri}`);
   console.log('\n========================================\n');
+
+  // Register with Tesla Fleet API for virtual key (so "Add key" link works in Tesla app)
+  (async () => {
+    const domain = config.tesla.developerDomain;
+    if (!domain) {
+      console.warn('⚠️ Tesla partner registration skipped: no developer domain (set TESLA_REDIRECT_URI or TESLA_DEVELOPER_DOMAIN).');
+      return;
+    }
+    console.log('🔐 Registering with Tesla Fleet API for virtual key, domain:', domain);
+    try {
+      const { registerPartnerAccount } = await import('./services/teslaPartnerService.js');
+      await registerPartnerAccount();
+      console.log('✅ Tesla partner (virtual key) registration successful. Add-key link: https://www.tesla.com/_ak/' + domain);
+    } catch (err) {
+      if (err.response?.status === 409) {
+        console.log('ℹ️ Tesla partner already registered (virtual key).');
+      } else {
+        const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+        const status = err.response?.status;
+        console.warn('⚠️ Tesla partner registration failed (status ' + status + '):', msg);
+        if (err.response?.data) console.warn('   Response:', JSON.stringify(err.response.data));
+      }
+    }
+  })();
 });
 
 // Graceful shutdown

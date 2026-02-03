@@ -104,27 +104,29 @@ export const callback = async (req, res) => {
     // Update last login
     await User.updateLastLogin(user.id);
     
-    // Auto-register with Tesla Fleet API
-    try {
-      console.log('🔐 Auto-registering with Tesla Fleet API...');
-      const axios = (await import('axios')).default;
-      await axios.post(
-        `${config.tesla.apiBaseUrl}/api/1/partner_accounts`,
-        { domain: 'localhost:3000' },
-        {
-          headers: {
-            'Authorization': `Bearer ${tokenData.accessToken}`,
-            'Content-Type': 'application/json',
-          },
+    // Auto-register with Tesla Fleet API only when using Fleet API base (OAuth tokens are for Owner API only)
+    const isFleetApi = config.tesla.apiBaseUrl && config.tesla.apiBaseUrl.includes('fleet-api');
+    if (isFleetApi) {
+      try {
+        console.log('🔐 Auto-registering with Tesla Fleet API...');
+        const axios = (await import('axios')).default;
+        await axios.post(
+          `${config.tesla.apiBaseUrl}/api/1/partner_accounts`,
+          { domain: 'localhost:3000' },
+          {
+            headers: {
+              'Authorization': `Bearer ${tokenData.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        console.log('✅ Successfully registered with Tesla Fleet API');
+      } catch (regError) {
+        if (regError.response?.status === 409) {
+          console.log('ℹ️ Already registered with Tesla Fleet API');
+        } else {
+          console.warn('⚠️ Fleet API registration failed (might be okay):', regError.response?.data || regError.message);
         }
-      );
-      console.log('✅ Successfully registered with Tesla Fleet API');
-    } catch (regError) {
-      // If already registered (409), that's fine
-      if (regError.response?.status === 409) {
-        console.log('ℹ️ Already registered with Tesla Fleet API');
-      } else {
-        console.warn('⚠️ Fleet API registration failed (might be okay):', regError.response?.data || regError.message);
       }
     }
 

@@ -70,6 +70,14 @@ export const getVehicles = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching vehicles:', error);
+    const isInvalidToken = /invalid bearer token|auth failed/i.test(error.message || '') || (error.response?.data?.error === 'invalid bearer token');
+    if (isInvalidToken) {
+      res.status(401).json({
+        success: false,
+        error: 'Tesla session expired or invalid. Please sign in again.',
+      });
+      return;
+    }
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch vehicles',
@@ -147,6 +155,14 @@ export const getVehicleMetrics = async (req, res) => {
 
     // Get valid access token
     const accessToken = await getValidAccessToken(userId);
+
+    // Check if vehicle is awake; wake if needed (avoids 408 / timeout when asleep)
+    const vehicleInfo = await activeService.getVehicle(accessToken, vehicle.tesla_vehicle_id);
+    if (!activeService.isVehicleAwake(vehicleInfo)) {
+      console.log('🚗 Vehicle asleep, sending wake command...');
+      await activeService.wakeUpVehicle(accessToken, vehicle.tesla_vehicle_id);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
 
     // Fetch current vehicle data
     const vehicleData = await activeService.getVehicleData(accessToken, vehicle.tesla_vehicle_id);

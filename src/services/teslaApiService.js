@@ -1,13 +1,16 @@
 import axios from 'axios';
 import config from '../config/config.js';
 
+// OAuth tokens from auth.tesla.com are for Owner API only. Fleet API returns "invalid bearer token".
+const OWNER_API_BASE = config.tesla.vehicleApiBaseUrl || 'https://owner-api.teslamotors.com';
+
 class TeslaApiService {
   constructor() {
-    this.apiBaseUrl = config.tesla.apiBaseUrl;
+    this.apiBaseUrl = OWNER_API_BASE;
   }
 
   /**
-   * Create axios instance with auth token
+   * Create axios instance with auth token (always uses Owner API for vehicle endpoints)
    */
   createClient(accessToken) {
     return axios.create({
@@ -25,12 +28,22 @@ class TeslaApiService {
    */
   async getVehicles(accessToken) {
     try {
+      console.log('Tesla API getVehicles request:', { baseUrl: this.apiBaseUrl, path: '/api/1/vehicles' });
       const client = this.createClient(accessToken);
       const response = await client.get('/api/1/vehicles');
+      console.log('Tesla API getVehicles success:', { status: response.status, vehicleCount: response.data?.response?.length ?? 0 });
       return response.data.response || [];
     } catch (error) {
-      console.error('Error fetching vehicles:', error.response?.data || error.message);
-      throw new Error('Failed to fetch vehicles from Tesla API');
+      const status = error.response?.status;
+      const body = error.response?.data;
+      const teslaError = body?.error || body?.message;
+      console.error('Tesla API getVehicles failed:', { status, baseUrl: this.apiBaseUrl, body: body || error.message });
+      if (status === 401 || status === 403 || teslaError === 'invalid bearer token') {
+        const err = new Error(teslaError || `Tesla API auth failed (${status})`);
+        err.isTeslaAuth = true;
+        throw err;
+      }
+      throw new Error(teslaError || 'Failed to fetch vehicles from Tesla API');
     }
   }
 
@@ -57,8 +70,16 @@ class TeslaApiService {
       const response = await client.get(`/api/1/vehicles/${vehicleId}/vehicle_data`);
       return response.data.response;
     } catch (error) {
-      console.error('Error fetching vehicle data:', error.response?.data || error.message);
-      throw new Error('Failed to fetch vehicle data');
+      const status = error.response?.status;
+      const body = error.response?.data;
+      console.error('Tesla API getVehicleData failed:', { status, vehicleId, baseUrl: this.apiBaseUrl, body: body || error.message });
+      if (status === 401 || status === 403) {
+        throw new Error(`Tesla API auth failed (${status}). Try Owner API: set TESLA_API_BASE_URL=https://owner-api.teslamotors.com`);
+      }
+      if (status === 408 || error.code === 'ECONNABORTED') {
+        throw new Error('Vehicle may be asleep. Wake it from the Tesla app and try again.');
+      }
+      throw new Error(body?.error || body?.message || 'Failed to fetch vehicle data');
     }
   }
 
